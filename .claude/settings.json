@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && .venv/bin/python -m pytest -q 1>&2; rc=$?; if [ $rc -eq 1 ]; then exit 2; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
