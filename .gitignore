@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Orbit Air lab
+.venv/
+.env
+*.db
+*.sqlite3
+__pycache__/
+CLAUDE.local.md
