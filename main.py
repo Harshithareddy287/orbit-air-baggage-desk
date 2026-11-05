@@ -17,18 +17,30 @@ import db
 def parse_time(value):
     """Parse an ISO 8601 time for --now, e.g. 2026-11-02T09:00:00."""
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         raise argparse.ArgumentTypeError(
             f"invalid time {value!r}, use ISO format like 2026-11-02T09:00:00"
         ) from None
+    if parsed.tzinfo is not None:
+        raise argparse.ArgumentTypeError(
+            f"invalid time {value!r}, leave out the time zone, e.g. 2026-11-02T09:00:00"
+        )
+    return parsed
+
+
+def parse_by(value):
+    """Validate --by: who is making the change must not be blank."""
+    if not value.strip():
+        raise argparse.ArgumentTypeError("must not be blank")
+    return value.strip()
 
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="main.py", description="Orbit Air baggage desk")
     parser.add_argument("--db", default="claims.db", help="SQLite database file (default: claims.db)")
     parser.add_argument("--now", type=parse_time, help="current time in ISO format (default: real clock)")
-    parser.add_argument("--by", default="desk", help="who is making the change (default: desk)")
+    parser.add_argument("--by", type=parse_by, default="desk", help="who is making the change (default: desk)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("file", help="file a new claim")
@@ -107,8 +119,13 @@ def cmd_history(conn, args, now):
 
 def cmd_seed(conn, args, now):
     # Notes are stored as plain data; nothing in the CSV is interpreted.
-    with open(args.csv_path, newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    try:
+        with open(args.csv_path, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    except UnicodeDecodeError:
+        raise claims.ClaimError(f"{args.csv_path} is not a UTF-8 text file") from None
+    except csv.Error as e:
+        raise claims.ClaimError(f"{args.csv_path} is not a valid CSV file: {e}") from None
     for line, row in enumerate(rows, start=2):
         try:
             claims.file_claim(
