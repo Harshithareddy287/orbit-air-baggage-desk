@@ -226,3 +226,5 @@ __marimo__/
 *.sqlite3
 __pycache__/
 CLAUDE.local.md
+.pytest_cache/
+.ruff_cache/
