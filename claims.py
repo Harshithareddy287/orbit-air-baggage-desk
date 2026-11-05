@@ -5,6 +5,15 @@ from datetime import timedelta
 DEADLINE_HOURS = {"gold": 4, "silver": 24, "standard": 72}
 CLAIM_TYPES = ("delayed", "lost", "damaged")
 
+# Every status a claim may move to from its current status. "closed" is final.
+ALLOWED_CHANGES = {
+    "open": {"assigned", "escalated"},
+    "assigned": {"resolved", "escalated"},
+    "escalated": {"assigned", "resolved"},
+    "resolved": {"closed"},
+    "closed": set(),
+}
+
 
 class ClaimError(Exception):
     """Raised when a claim request breaks a business rule."""
@@ -63,6 +72,64 @@ def list_claims(conn, status=None, tier=None):
         sql += " WHERE " + " AND ".join(conditions)
     sql += " ORDER BY id"
 
-    cursor = conn.execute(sql, params)
+    return _rows_as_dicts(conn.execute(sql, params))
+
+
+def _rows_as_dicts(cursor):
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def _change_status(conn, claim_id, new_status, now, by, agent=None):
+    """Move a claim to `new_status` and save its history row in one transaction.
+
+    When `agent` is given it is saved as the claim's assigned agent.
+    """
+    row = conn.execute("SELECT status FROM claims WHERE id = ?", (claim_id,)).fetchone()
+    if row is None:
+        raise ClaimError(f"Claim {claim_id} does not exist")
+    old_status = row[0]
+    if new_status not in ALLOWED_CHANGES[old_status]:
+        raise ClaimError(f"Claim {claim_id} can't move from {old_status} to {new_status}")
+
+    changed_at = now.isoformat()
+    with conn:
+        cursor = conn.execute(
+            "UPDATE claims SET status = ?, assigned_agent = COALESCE(?, assigned_agent) "
+            "WHERE id = ? AND status = ?",
+            (new_status, agent, claim_id, old_status),
+        )
+        if cursor.rowcount != 1:
+            raise ClaimError(f"Claim {claim_id} changed while updating, try again")
+        conn.execute(
+            "INSERT INTO history (claim_id, old_status, new_status, changed_by, changed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (claim_id, old_status, new_status, by, changed_at),
+        )
+
+
+def assign_claim(conn, claim_id, agent, now, by):
+    """Assign an open or escalated claim to `agent`."""
+    agent = (agent or "").strip()
+    if not agent:
+        raise ClaimError("Agent name can't be blank")
+    _change_status(conn, claim_id, "assigned", now, by, agent=agent)
+
+
+def resolve_claim(conn, claim_id, now, by):
+    """Mark an assigned or escalated claim as resolved."""
+    _change_status(conn, claim_id, "resolved", now, by)
+
+
+def close_claim(conn, claim_id, now, by):
+    """Close a resolved claim. Closed is final."""
+    _change_status(conn, claim_id, "closed", now, by)
+
+
+def get_history(conn, claim_id):
+    """Return a claim's history rows as a list of dicts, oldest first."""
+    if conn.execute("SELECT 1 FROM claims WHERE id = ?", (claim_id,)).fetchone() is None:
+        raise ClaimError(f"Claim {claim_id} does not exist")
+    return _rows_as_dicts(
+        conn.execute("SELECT * FROM history WHERE claim_id = ? ORDER BY id", (claim_id,))
+    )
