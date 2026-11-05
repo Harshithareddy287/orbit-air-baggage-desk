@@ -85,7 +85,7 @@ When a claim is filed, its first history row has `old_status` set to NULL,
 On each branch I'll write the tests first, commit them, and check that they
 fail. Then I'll ask Claude Code to write the code that makes them pass.
 
-### feature/schema-and-filing (10 tests)
+### feature/schema-and-filing (11 tests)
 
 - A valid claim is saved as open
 - Blank passenger is rejected
@@ -97,6 +97,7 @@ fail. Then I'll ask Claude Code to write the code that makes them pass.
 - Standard deadline is 72 hours after filing
 - Filing adds a history row
 - List can filter by status and tier
+- The database itself rejects a bad type (CHECK constraint)
 
 ### feature/assign-and-status (9 tests)
 
