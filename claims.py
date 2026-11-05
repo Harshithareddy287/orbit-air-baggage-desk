@@ -1,6 +1,6 @@
 """Claim rules for the Orbit Air baggage desk."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 DEADLINE_HOURS = {"gold": 4, "silver": 24, "standard": 72}
 CLAIM_TYPES = ("delayed", "lost", "damaged")
@@ -124,6 +124,32 @@ def resolve_claim(conn, claim_id, now, by):
 def close_claim(conn, claim_id, now, by):
     """Close a resolved claim. Closed is final."""
     _change_status(conn, claim_id, "closed", now, by)
+
+
+def is_overdue(deadline, now):
+    """Return True only when `now` is strictly later than `deadline`.
+
+    Exactly at the deadline still counts as on time.
+    """
+    return now > deadline
+
+
+def escalate_overdue(conn, now):
+    """Escalate every open or assigned claim whose deadline has passed at `now`.
+
+    Each claim's status change and history row are saved together, recorded as
+    changed by "system". Returns the escalated claim ids in id order.
+    """
+    candidates = conn.execute(
+        "SELECT id, deadline FROM claims WHERE status IN ('open', 'assigned') ORDER BY id"
+    ).fetchall()
+
+    escalated = []
+    for claim_id, deadline in candidates:
+        if is_overdue(datetime.fromisoformat(deadline), now):
+            _change_status(conn, claim_id, "escalated", now, "system")
+            escalated.append(claim_id)
+    return escalated
 
 
 def get_history(conn, claim_id):
